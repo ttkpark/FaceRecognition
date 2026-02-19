@@ -1,0 +1,24 @@
+name: face_attendance_test
+description: 테스트용 Flutter 앱 - 서버/WebSocket/얼굴인식 검증
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  http: ^1.2.2
+  web_socket_channel: ^3.0.2
+  camera: ^0.11.0+2
+  shared_preferences: ^2.3.3
+  image_picker: ^1.0.7
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true

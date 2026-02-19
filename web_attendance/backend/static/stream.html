@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>실시간 카메라 스트림 - 얼굴 인식</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: 'Segoe UI', sans-serif; margin: 0; background: #0d1117; color: #e6edf3; }
+    .header { padding: 12px 20px; background: #161b22; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .header h1 { margin: 0; font-size: 1.2rem; color: #58a6ff; }
+    .status { padding: 4px 10px; border-radius: 6px; font-size: 13px; }
+    .status.connected { background: #238636; color: #fff; }
+    .status.disconnected { background: #da3633; color: #fff; }
+    .status.connecting { background: #6e7681; color: #fff; }
+    .main { padding: 20px; display: flex; flex-direction: column; align-items: center; min-height: calc(100vh - 60px); }
+    #videoContainer { position: relative; max-width: 100%; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.4); }
+    #streamImg { display: block; max-width: 100%; max-height: 80vh; background: #000; }
+    .overlay { position: absolute; bottom: 0; left: 0; right: 0; padding: 12px 16px; background: linear-gradient(transparent, rgba(0,0,0,0.8)); color: #fff; font-size: 14px; }
+    .overlay .recognition { font-weight: 600; color: #7ee787; }
+    .overlay .recognition.unknown { color: #f85149; }
+    .placeholder { padding: 60px 40px; text-align: center; color: #8b949e; background: #161b22; border-radius: 12px; }
+    .placeholder p { margin: 8px 0; }
+    input[type="text"] { padding: 8px 12px; border-radius: 6px; border: 1px solid #30363d; background: #0d1117; color: #e6edf3; width: 260px; }
+    button { padding: 8px 16px; border-radius: 6px; border: none; background: #238636; color: #fff; cursor: pointer; }
+    button:hover { background: #2ea043; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>실시간 카메라 스트림</h1>
+    <input type="text" id="wsUrl" value="ws://localhost:8000/ws/stream" placeholder="ws://서버:8000/ws/stream" />
+    <button id="btnConnect">연결</button>
+    <span id="status" class="status disconnected">연결 안됨</span>
+  </div>
+  <div class="main">
+    <div id="videoContainer" style="display:none;">
+      <img id="streamImg" alt="스트림" />
+      <div class="overlay" id="overlay"></div>
+      <div id="frameInfo" style="position:absolute;top:8px;right:8px;background:rgba(0,0,0,0.6);padding:4px 8px;border-radius:6px;font-size:12px;">프레임: 0</div>
+    </div>
+    <div id="placeholder" class="placeholder">
+      <p>Flutter 앱에서 카메라 스트리밍을 시작하면</p>
+      <p>여기에 실시간 영상과 얼굴 인식 결과가 표시됩니다.</p>
+      <p style="margin-top:16px; font-size:12px;">① [연결] 클릭 → ② Flutter 앱 <strong>스트림 테스트</strong> 탭 실행</p>
+      <p style="margin-top:8px; font-size:11px; color:#f85149;"><strong>휴대폰 사용 시:</strong> 앱의 API 테스트 탭에서 서버 URL을 <strong>PC IP</strong>(예: http://192.168.0.10:8000)로 저장하세요. localhost는 PC에서만 동작합니다.</p>
+    </div>
+  </div>
+  <script>
+    const wsUrlEl = document.getElementById('wsUrl');
+    const btnConnect = document.getElementById('btnConnect');
+    const statusEl = document.getElementById('status');
+    const videoContainer = document.getElementById('videoContainer');
+    const streamImg = document.getElementById('streamImg');
+    const overlayEl = document.getElementById('overlay');
+    const placeholder = document.getElementById('placeholder');
+    const frameInfoEl = document.getElementById('frameInfo');
+    let ws = null;
+    let frameCount = 0;
+    let receivedFirstFrame = false;
+
+    function updateFrameInfo() {
+      if (frameInfoEl) frameInfoEl.textContent = '프레임: ' + frameCount;
+    }
+
+    function setStatus(cls, text) {
+      statusEl.className = 'status ' + cls;
+      statusEl.textContent = text;
+    }
+
+    function connect() {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.close();
+      }
+      const url = wsUrlEl.value.trim();
+      if (!url) {
+        alert('WebSocket URL을 입력하세요.');
+        return;
+      }
+      receivedFirstFrame = false;
+      setStatus('connecting', '연결 중...');
+      ws = new WebSocket(url);
+      ws.binaryType = 'arraybuffer';
+      ws.onopen = () => {
+        frameCount = 0;
+        updateFrameInfo();
+        console.log('[WebSocket] 연결됨:', url);
+        setStatus('connected', '연결됨 (프레임 대기 중)');
+        videoContainer.style.display = 'block';
+        placeholder.style.display = 'none';
+      };
+      ws.onclose = (ev) => {
+        console.log('[WebSocket] 연결 끊김:', ev.code, ev.reason);
+        setStatus('disconnected', '연결 끊김');
+      };
+      ws.onerror = (ev) => {
+        console.error('[WebSocket] 오류:', ev);
+        setStatus('disconnected', '오류');
+      };
+      ws.onmessage = (ev) => {
+        if (typeof ev.data === 'string') {
+          try {
+            const msg = JSON.parse(ev.data);
+            console.log('[WebSocket] 메시지 수신:', msg.type);
+            if (msg.type === 'frame' && msg.image) {
+            frameCount++;
+            updateFrameInfo();
+            if (!receivedFirstFrame) { receivedFirstFrame = true; setStatus('connected', '연결됨'); }
+            streamImg.src = 'data:image/jpeg;base64,' + msg.image;
+            if (msg.recognition) {
+              const r = msg.recognition;
+              if (r.matched && r.person) {
+                overlayEl.innerHTML = '<span class="recognition">' + r.person.name + (r.attendanceRecorded ? ' 출석 완료!' : ' (이미 출석)') + '</span>';
+              } else {
+                overlayEl.innerHTML = '<span class="recognition unknown">미등록</span>';
+              }
+            } else {
+              overlayEl.innerHTML = '';
+            }
+          } else {
+            console.log('[WebSocket] 알 수 없는 메시지 타입:', msg.type);
+          }
+          } catch (e) {
+            console.error('[WebSocket] JSON 파싱 오류:', e);
+          }
+        } else {
+          console.log('[WebSocket] 바이너리 데이터 수신 (무시)');
+        }
+      };
+    }
+
+    btnConnect.onclick = connect;
+
+    // 페이지 로드 시 현재 호스트로 ws URL 설정
+    if (location.host) {
+      const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const host = location.hostname || 'localhost';
+      const port = location.port || (location.protocol === 'https:' ? 443 : 80);
+      wsUrlEl.value = proto + '//' + host + (port ? ':' + port : '') + '/ws/stream';
+    }
+  </script>
+</body>
+</html>

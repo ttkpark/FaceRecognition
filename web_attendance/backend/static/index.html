@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>얼굴 인식 출석 - 관리</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: 'Segoe UI', sans-serif; margin: 20px; background: #1a1a2e; color: #eee; }
+    h1 { color: #0f3460; color: #e94560; }
+    .card { background: #16213e; padding: 16px; border-radius: 8px; margin-bottom: 16px; }
+    .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin-bottom: 8px; }
+    input, select, button { padding: 8px 12px; border-radius: 6px; border: 1px solid #0f3460; background: #1a1a2e; color: #eee; }
+    button { background: #e94560; border: none; cursor: pointer; }
+    button:hover { opacity: 0.9; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 8px; text-align: left; border-bottom: 1px solid #0f3460; }
+    .status { display: inline-block; padding: 4px 8px; border-radius: 4px; font-size: 12px; }
+    .status.ok { background: #0f3460; color: #7f; }
+    .status.err { background: #600; color: #f88; }
+    #baseUrl { width: 280px; }
+  </style>
+</head>
+<body>
+  <h1>얼굴 인식 출석 시스템</h1>
+  <div class="card">
+    <a href="/stream" style="color:#58a6ff;">실시간 스트림 뷰어</a> |
+    <a href="/unknown" style="color:#58a6ff;">미등록 얼굴 관리</a>
+  </div>
+  <div class="card">
+    <div class="row">
+      <label>서버 주소:</label>
+      <input type="text" id="baseUrl" value="http://localhost:8000" placeholder="http://localhost:8000" />
+      <button type="button" id="btnHealth">연결 확인</button>
+      <span id="healthStatus"></span>
+    </div>
+  </div>
+  <div class="card">
+    <h2>출석 기록</h2>
+    <div class="row">
+      <input type="date" id="filterDate" />
+      <button type="button" id="btnLoadAttendances">조회</button>
+      <button type="button" id="btnExport">Excel 내보내기</button>
+    </div>
+    <table>
+      <thead><tr><th>날짜</th><th>이름</th><th>출석 시각</th></tr></thead>
+      <tbody id="attendancesBody"></tbody>
+    </table>
+  </div>
+  <div class="card">
+    <h2>등록 사용자</h2>
+    <button type="button" id="btnLoadPersons">목록 새로고침</button>
+    <ul id="personsList"></ul>
+  </div>
+  <div class="card">
+    <h2>미등록 얼굴 (C+B 방식)</h2>
+    <p style="font-size:12px; color:#8b949e;">스트리밍 중 인식되지 않은 얼굴이 연속 4프레임 이상 감지되면 자동 저장됩니다. 클러스터링 후 이름을 부여해 등록하세요.</p>
+    <div class="row" style="margin-top:12px;">
+      <button type="button" id="btnLoadUnknown">미등록 목록</button>
+      <button type="button" id="btnCluster">클러스터링 (같은 사람 묶기)</button>
+    </div>
+    <div id="clustersContainer" style="margin-top:16px; display:flex; flex-wrap:wrap; gap:16px;"></div>
+  </div>
+  <script>
+    function base() { return document.getElementById('baseUrl').value.replace(/\/$/, ''); }
+    async function api(path, opts = {}) {
+      const url = base() + path;
+      const res = await fetch(url, { ...opts, headers: { ...opts.headers } });
+      if (!res.ok) throw new Error(await res.text());
+      if (res.status === 204) return null;
+      const ct = res.headers.get('content-type') || '';
+      if (ct.includes('json')) return res.json();
+      return res.text();
+    }
+    document.getElementById('btnHealth').onclick = async () => {
+      const el = document.getElementById('healthStatus');
+      el.textContent = '확인 중...';
+      el.className = 'status';
+      try {
+        const d = await api('/api/health');
+        el.textContent = d.ml_model_loaded ? '연결됨 (ML 로드됨)' : '연결됨 (ML 미로드)';
+        el.className = 'status ok';
+      } catch (e) {
+        el.textContent = '연결 실패';
+        el.className = 'status err';
+      }
+    };
+    document.getElementById('btnLoadAttendances').onclick = async () => {
+      const date = document.getElementById('filterDate').value;
+      const q = date ? '?date=' + date : '';
+      try {
+        const d = await api('/api/attendances' + q);
+        const tbody = document.getElementById('attendancesBody');
+        tbody.innerHTML = d.attendances.map(a => {
+          const time = a.timestamp ? new Date(a.timestamp).toLocaleString('ko-KR') : '-';
+          return `<tr><td>${a.date}</td><td>${a.personName || a.personId}</td><td>${time}</td></tr>`;
+        }).join('') || '<tr><td colspan="3">기록 없음</td></tr>';
+      } catch (e) {
+        alert('조회 실패: ' + e.message);
+      }
+    };
+    document.getElementById('btnExport').onclick = async () => {
+      const from = document.getElementById('filterDate').value || new Date().toISOString().slice(0,10);
+      const to = from;
+      window.open(base() + '/api/attendances/export?from=' + from + '&to=' + to + '&format=xlsx', '_blank');
+    };
+    document.getElementById('btnLoadPersons').onclick = async () => {
+      try {
+        const d = await api('/api/persons');
+        const ul = document.getElementById('personsList');
+        ul.innerHTML = d.persons.map(p => `<li>${p.name} (ID: ${p.id})</li>`).join('') || '<li>없음</li>';
+      } catch (e) {
+        alert('목록 실패: ' + e.message);
+      }
+    };
+    if (document.getElementById('filterDate').value === '') {
+      document.getElementById('filterDate').value = new Date().toISOString().slice(0, 10);
+    }
+    document.getElementById('btnLoadAttendances').click();
+
+    // 미등록 얼굴
+    document.getElementById('btnLoadUnknown').onclick = async () => {
+      try {
+        const d = await api('/api/unknown-faces');
+        const cnt = d.unknownFaces?.length || 0;
+        alert('미등록 얼굴 ' + cnt + '건. [클러스터링]을 눌러 같은 사람끼리 묶으세요.');
+      } catch (e) {
+        alert('조회 실패: ' + e.message);
+      }
+    };
+    document.getElementById('btnCluster').onclick = async () => {
+      const container = document.getElementById('clustersContainer');
+      container.innerHTML = '<span>처리 중...</span>';
+      try {
+        const d = await api('/api/unknown-faces/cluster', { method: 'POST' });
+        const clusters = d.clusters || [];
+        if (clusters.length === 0) {
+          container.innerHTML = '<p style="color:#8b949e;">미등록 얼굴이 없거나 클러스터링할 데이터가 없습니다.</p>';
+          return;
+        }
+        container.innerHTML = clusters.map(c => {
+          const time = new Date(c.firstSeen).toLocaleString('ko-KR');
+          return `
+            <div class="cluster-card" data-id="${c.clusterId}" style="background:#0d1117; padding:12px; border-radius:8px; border:1px solid #30363d; min-width:180px;">
+              <img src="data:image/jpeg;base64,${c.thumbnail}" alt="" style="width:120px;height:120px;object-fit:cover;border-radius:6px;display:block;margin-bottom:8px;" />
+              <div style="font-size:12px; color:#8b949e;">프레임 ${c.count}회 · ${time}</div>
+              <div class="row" style="margin-top:8px;">
+                <input type="text" class="cluster-name" placeholder="이름 입력" style="flex:1; min-width:80px;" />
+                <button type="button" class="btnRegister">등록</button>
+                <button type="button" class="btnDelete">삭제</button>
+              </div>
+            </div>`;
+        }).join('');
+        container.querySelectorAll('.btnRegister').forEach((btn, i) => {
+          btn.onclick = async () => {
+            const card = btn.closest('.cluster-card');
+            const nameInput = card.querySelector('.cluster-name');
+            const name = nameInput.value.trim();
+            if (!name) { alert('이름을 입력하세요.'); return; }
+            try {
+              const fd = new FormData();
+              fd.append('clusterId', clusters[i].clusterId);
+              fd.append('name', name);
+              await api('/api/unknown-faces/register', { method: 'POST', body: fd });
+              alert('등록 완료: ' + name);
+              card.remove();
+              document.getElementById('btnLoadPersons').click();
+            } catch (e) {
+              alert('등록 실패: ' + e.message);
+            }
+          };
+        });
+        container.querySelectorAll('.btnDelete').forEach((btn, i) => {
+          btn.onclick = async () => {
+            if (!confirm('이 클러스터를 삭제하시겠습니까?')) return;
+            try {
+              await api('/api/unknown-faces/cluster/' + clusters[i].clusterId, { method: 'DELETE' });
+              btn.closest('.cluster-card').remove();
+            } catch (e) {
+              alert('삭제 실패: ' + e.message);
+            }
+          };
+        });
+      } catch (e) {
+        container.innerHTML = '<p style="color:#f85149;">클러스터링 실패: ' + e.message + '</p>';
+      }
+    };
+  </script>
+</body>
+</html>

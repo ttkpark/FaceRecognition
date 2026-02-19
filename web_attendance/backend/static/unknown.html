@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>미등록 얼굴 관리 - C+B 방식</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: 'Segoe UI', sans-serif; margin: 20px; background: #0d1117; color: #e6edf3; }
+    h1 { color: #58a6ff; }
+    a { color: #58a6ff; }
+    .card { background: #161b22; padding: 20px; border-radius: 12px; margin-bottom: 20px; }
+    .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+    input, button { padding: 8px 16px; border-radius: 6px; border: 1px solid #30363d; background: #0d1117; color: #e6edf3; }
+    button { background: #238636; border: none; cursor: pointer; }
+    button:hover { background: #2ea043; }
+    button.danger { background: #da3633; }
+    button.danger:hover { background: #f85149; }
+    .clusters { display: flex; flex-wrap: wrap; gap: 20px; margin-top: 16px; }
+    .cluster-card { background: #0d1117; padding: 16px; border-radius: 12px; border: 1px solid #30363d; min-width: 200px; }
+    .cluster-card img { width: 140px; height: 140px; object-fit: cover; border-radius: 8px; display: block; margin-bottom: 12px; }
+    .cluster-meta { font-size: 12px; color: #8b949e; margin-bottom: 12px; }
+    .cluster-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .cluster-actions input { flex: 1; min-width: 100px; }
+  </style>
+</head>
+<body>
+  <h1>미등록 얼굴 관리</h1>
+  <p><a href="/">← 관리 홈</a> | <a href="/stream">실시간 스트림</a></p>
+  <div class="card">
+    <h2>안내</h2>
+    <p>스트리밍 중 <strong>인식되지 않은 얼굴</strong>이 연속 4프레임 이상 감지되면 자동 저장됩니다.</p>
+    <p>① <strong>클러스터링</strong> 버튼으로 같은 사람끼리 묶고, ② 각 그룹에 <strong>이름을 입력</strong>해 등록하세요.</p>
+    <p style="font-size:12px; color:#8b949e;">정확도: 유사도 88% 이상만 같은 사람으로 묶습니다. 얼굴 크기 60px 이상만 저장됩니다.</p>
+  </div>
+  <div class="card">
+    <div class="row">
+      <button type="button" id="btnCluster">클러스터링 실행</button>
+      <span id="status"></span>
+    </div>
+    <div id="clustersContainer" class="clusters"></div>
+  </div>
+  <script>
+    const base = () => (location.origin || 'http://localhost:8000');
+    async function api(path, opts = {}) {
+      const res = await fetch(base() + path, { ...opts });
+      if (!res.ok) throw new Error(await res.text());
+      if (res.status === 204) return null;
+      const ct = res.headers.get('content-type') || '';
+      return ct.includes('json') ? res.json() : res.text();
+    }
+    document.getElementById('btnCluster').onclick = async () => {
+      const container = document.getElementById('clustersContainer');
+      const status = document.getElementById('status');
+      status.textContent = '처리 중...';
+      container.innerHTML = '';
+      try {
+        const d = await api('/api/unknown-faces/cluster', { method: 'POST' });
+        const clusters = d.clusters || [];
+        status.textContent = clusters.length ? `클러스터 ${clusters.length}개` : '미등록 얼굴 없음';
+        if (clusters.length === 0) return;
+        container.innerHTML = clusters.map((c, i) => `
+          <div class="cluster-card" data-idx="${i}">
+            <img src="data:image/jpeg;base64,${c.thumbnail}" alt="얼굴" />
+            <div class="cluster-meta">프레임 ${c.count}회 · ${new Date(c.firstSeen).toLocaleString('ko-KR')}</div>
+            <div class="cluster-actions">
+              <input type="text" class="name-input" placeholder="이름 입력" />
+              <button type="button" class="btn-register">등록</button>
+              <button type="button" class="btn-delete danger">삭제</button>
+            </div>
+          </div>
+        `).join('');
+        clusters.forEach((c, i) => {
+          const card = container.querySelector(`[data-idx="${i}"]`);
+          card.querySelector('.btn-register').onclick = async () => {
+            const name = card.querySelector('.name-input').value.trim();
+            if (!name) { alert('이름을 입력하세요.'); return; }
+            try {
+              const fd = new FormData();
+              fd.append('clusterId', c.clusterId);
+              fd.append('name', name);
+              await api('/api/unknown-faces/register', { method: 'POST', body: fd });
+              alert('등록 완료: ' + name);
+              card.remove();
+            } catch (e) { alert('등록 실패: ' + e.message); }
+          };
+          card.querySelector('.btn-delete').onclick = async () => {
+            if (!confirm('이 그룹을 삭제하시겠습니까?')) return;
+            try {
+              await api('/api/unknown-faces/cluster/' + c.clusterId, { method: 'DELETE' });
+              card.remove();
+            } catch (e) { alert('삭제 실패: ' + e.message); }
+          };
+        });
+      } catch (e) {
+        status.textContent = '';
+        container.innerHTML = '<p style="color:#f85149;">오류: ' + e.message + '</p>';
+      }
+    };
+  </script>
+</body>
+</html>
