@@ -50,7 +50,6 @@ fun MainScreen(
         ) {
             when (currentScreen) {
                 Screen.Camera -> CameraScreen(
-                    viewModel = viewModel,
                     onNavigateToRegister = { currentScreen = Screen.Register },
                     onNavigateToAttendance = { currentScreen = Screen.Attendance }
                 )

@@ -1,6 +1,7 @@
 package com.example.facerecognition.ui
 
 import android.Manifest
+import android.os.Build
 import android.graphics.Bitmap
 import android.graphics.Matrix
 import androidx.camera.core.*
@@ -16,29 +17,28 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
-import com.example.facerecognition.viewmodel.FaceRecognitionViewModel
+import com.example.facerecognition.service.FaceRecognitionForegroundService
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.rememberMultiplePermissionsState
-import java.util.concurrent.Executors
 
 @OptIn(ExperimentalPermissionsApi::class)
 @Composable
 fun CameraScreen(
-    viewModel: FaceRecognitionViewModel,
     onNavigateToRegister: () -> Unit = {},
     onNavigateToAttendance: () -> Unit = {}
 ) {
     val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
     
     val cameraPermissionState = rememberMultiplePermissionsState(
-        permissions = listOf(
-            Manifest.permission.CAMERA
-        )
+        permissions = buildList {
+            add(Manifest.permission.CAMERA)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                add(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
     )
     
-    val recognizedPerson by viewModel.recognizedPerson.collectAsState()
-    val isProcessing by viewModel.isProcessing.collectAsState()
+    val isStreaming by FaceRecognitionForegroundService.serviceRunning.collectAsState()
     
     Column(
         modifier = Modifier
@@ -57,41 +57,47 @@ fun CameraScreen(
             CameraPreview(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f),
-                onImageCaptured = { bitmap ->
-                    viewModel.recognizeFace(bitmap)
-                }
+                    .weight(1f)
             )
             
             Spacer(modifier = Modifier.height(16.dp))
             
-            // 인식 결과 표시
-            if (isProcessing) {
-                CircularProgressIndicator()
-                Text("인식 중...")
-            } else if (recognizedPerson != null) {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer
-                    )
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer
+                )
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
+                    Text(
+                        text = if (isStreaming) {
+                            "스트리밍 실행 중 (화면 꺼져도 계속 동작)"
+                        } else {
+                            "스트리밍 대기 중"
+                        },
+                        style = MaterialTheme.typography.bodyLarge
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text(
-                            text = "인식됨: ${recognizedPerson!!.name}",
-                            style = MaterialTheme.typography.headlineSmall
-                        )
-                        Text(
-                            text = "출석이 기록되었습니다.",
-                            style = MaterialTheme.typography.bodyMedium
-                        )
+                        Button(
+                            enabled = !isStreaming,
+                            onClick = { FaceRecognitionForegroundService.start(context) }
+                        ) {
+                            Text("스트리밍 시작")
+                        }
+                        Button(
+                            enabled = isStreaming,
+                            onClick = { FaceRecognitionForegroundService.stop(context) }
+                        ) {
+                            Text("스트리밍 중지")
+                        }
                     }
                 }
-            } else {
-                Text("얼굴을 카메라에 맞춰주세요")
             }
             
             Spacer(modifier = Modifier.height(16.dp))
@@ -114,13 +120,10 @@ fun CameraScreen(
 
 @Composable
 fun CameraPreview(
-    modifier: Modifier = Modifier,
-    onImageCaptured: (Bitmap) -> Unit
+    modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    var imageCapture: ImageCapture? by remember { mutableStateOf(null) }
-    var imageAnalysis: ImageAnalysis? by remember { mutableStateOf(null) }
     
     AndroidView(
         modifier = modifier,
@@ -134,25 +137,7 @@ fun CameraPreview(
                 val preview = Preview.Builder().build().also {
                     it.setSurfaceProvider(previewView.surfaceProvider)
                 }
-                
-                val capture = ImageCapture.Builder()
-                    .setTargetRotation(previewView.display.rotation)
-                    .build()
-                imageCapture = capture
-                
-                val analysis = ImageAnalysis.Builder()
-                    .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                    .build()
-                    .also {
-                        it.setAnalyzer(
-                            Executors.newSingleThreadExecutor(),
-                            FaceImageAnalyzer { bitmap ->
-                                onImageCaptured(bitmap)
-                            }
-                        )
-                    }
-                imageAnalysis = analysis
-                
+
                 val cameraSelector = CameraSelector.DEFAULT_FRONT_CAMERA
                 
                 try {
@@ -160,9 +145,7 @@ fun CameraPreview(
                     cameraProvider.bindToLifecycle(
                         lifecycleOwner,
                         cameraSelector,
-                        preview,
-                        capture,
-                        analysis
+                        preview
                     )
                 } catch (e: Exception) {
                     e.printStackTrace()
