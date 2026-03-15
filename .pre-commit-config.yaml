@@ -1,0 +1,8 @@
+repos:
+  - repo: local
+    hooks:
+      - id: block-runtime-artifacts-and-large-files
+        name: Block runtime artifacts and large files
+        entry: python scripts/git_hooks/pre_commit_guard.py
+        language: system
+        pass_filenames: false
