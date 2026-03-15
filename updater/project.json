@@ -1,0 +1,26 @@
+﻿{
+  "repo_path": "..",
+  "branch": "main",
+  "remote": "origin",
+  "log_file": "updater/updater.log",
+  "lock_file": "updater/updater.lock",
+  "skip_if_dirty": true,
+  "auto_push_local_ahead": false,
+  "stop": {
+    "mode": "port",
+    "port": 8001
+  },
+  "start": {
+    "windows": "cmd /c web_attendance\\backend\\run.bat",
+    "linux": "bash web_attendance/backend/run.sh"
+  },
+  "setup": {
+    "enabled": true,
+    "windows": "cmd /c web_attendance\\backend\\setup.bat",
+    "linux": "bash web_attendance/backend/setup.sh",
+    "run_when_changed": [
+      "web_attendance/backend/requirements.txt",
+      "web_attendance/backend/requirements-minimal.txt"
+    ]
+  }
+}

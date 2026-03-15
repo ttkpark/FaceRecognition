@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>출석 관리</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: 'Segoe UI', sans-serif; margin: 20px; background: #0d1117; color: #e6edf3; }
+    h1 { color: #58a6ff; margin-bottom: 8px; }
+    a { color: #58a6ff; }
+    .card { background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 10px; }
+    input, select, button {
+      background: #0d1117;
+      border: 1px solid #30363d;
+      color: #e6edf3;
+      border-radius: 8px;
+      padding: 8px 12px;
+    }
+    button { background: #238636; border: none; cursor: pointer; }
+    button:hover { background: #2ea043; }
+    .btn-secondary { background: #1f6feb; }
+    .btn-secondary:hover { background: #388bfd; }
+    .status { font-size: 14px; }
+    .status.ok { color: #7ee787; }
+    .status.err { color: #f85149; }
+    table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+    th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid #30363d; }
+    th { color: #8b949e; font-weight: 600; }
+    .muted { color: #8b949e; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <h1>출석 관리</h1>
+  <p><a href="/">← 관리 홈</a> | <a href="/stream">실시간 스트림</a> | <a href="/unknown">미등록 얼굴</a></p>
+
+  <div class="card">
+    <h2>출석 기록</h2>
+    <p class="muted">선택한 사용자의 출석 시각을 현재 시각으로 기록합니다. 같은 날짜에 이미 출석한 경우 중복 기록되지 않습니다.</p>
+    <div class="row">
+      <label for="baseUrl">서버 주소</label>
+      <input type="text" id="baseUrl" value="http://localhost:8000" />
+      <button type="button" class="btn-secondary" id="btnHealth">연결 확인</button>
+      <span id="healthStatus" class="status"></span>
+    </div>
+    <div class="row">
+      <label for="personSelect">사용자</label>
+      <select id="personSelect"></select>
+      <button type="button" id="btnMarkAttendance">지금 출석 기록</button>
+      <span id="markStatus" class="status"></span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>출석 리스트</h2>
+    <div class="row">
+      <label for="filterDate">날짜</label>
+      <input type="date" id="filterDate" />
+      <label for="filterPerson">사용자</label>
+      <select id="filterPerson">
+        <option value="">전체</option>
+      </select>
+      <button type="button" class="btn-secondary" id="btnLoadAttendances">조회</button>
+    </div>
+    <table>
+      <thead>
+        <tr><th>날짜</th><th>이름</th><th>출석 시각</th></tr>
+      </thead>
+      <tbody id="attendancesBody"></tbody>
+    </table>
+  </div>
+
+  <script>
+    function base() {
+      return document.getElementById('baseUrl').value.replace(/\/$/, '');
+    }
+
+    async function api(path, opts = {}) {
+      const res = await fetch(base() + path, opts);
+      if (!res.ok) throw new Error(await res.text());
+      if (res.status === 204) return null;
+      const ct = res.headers.get('content-type') || '';
+      return ct.includes('json') ? res.json() : res.text();
+    }
+
+    function setStatus(el, text, isOk) {
+      el.textContent = text;
+      el.className = 'status ' + (isOk ? 'ok' : 'err');
+    }
+
+    function formatTime(ts) {
+      if (!ts) return '-';
+      return new Date(ts).toLocaleString('ko-KR', { hour12: false });
+    }
+
+    async function loadPersons() {
+      const d = await api('/api/persons');
+      const persons = d.persons || [];
+      const personSelect = document.getElementById('personSelect');
+      const filterPerson = document.getElementById('filterPerson');
+
+      personSelect.innerHTML = persons.length
+        ? persons.map(p => `<option value="${p.id}">${p.name} (ID:${p.id})</option>`).join('')
+        : '<option value="">등록 사용자 없음</option>';
+
+      filterPerson.innerHTML =
+        '<option value="">전체</option>' +
+        persons.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+    }
+
+    async function loadAttendances() {
+      const filterDate = document.getElementById('filterDate').value;
+      const filterPerson = document.getElementById('filterPerson').value;
+      const qs = new URLSearchParams();
+      if (filterDate) qs.set('date', filterDate);
+      if (filterPerson) qs.set('personId', filterPerson);
+      const q = qs.toString() ? '?' + qs.toString() : '';
+
+      const d = await api('/api/attendances' + q);
+      const rows = d.attendances || [];
+      const body = document.getElementById('attendancesBody');
+      body.innerHTML = rows.length
+        ? rows.map(a => `<tr><td>${a.date}</td><td>${a.personName || a.personId}</td><td>${formatTime(a.timestamp)}</td></tr>`).join('')
+        : '<tr><td colspan="3">출석 기록이 없습니다.</td></tr>';
+    }
+
+    document.getElementById('btnHealth').onclick = async () => {
+      const status = document.getElementById('healthStatus');
+      status.textContent = '확인 중...';
+      status.className = 'status';
+      try {
+        await api('/api/health');
+        setStatus(status, '연결됨', true);
+      } catch (e) {
+        setStatus(status, '연결 실패', false);
+      }
+    };
+
+    document.getElementById('btnMarkAttendance').onclick = async () => {
+      const status = document.getElementById('markStatus');
+      status.textContent = '기록 중...';
+      status.className = 'status';
+      try {
+        const personId = document.getElementById('personSelect').value;
+        if (!personId) {
+          setStatus(status, '선택 가능한 사용자가 없습니다.', false);
+          return;
+        }
+        const fd = new FormData();
+        fd.append('personId', personId);
+        const d = await api('/api/attendances/mark', { method: 'POST', body: fd });
+        if (d.recorded) {
+          setStatus(status, `${d.attendance.personName} 출석 기록 완료`, true);
+        } else {
+          const t = formatTime(d.attendance?.timestamp);
+          setStatus(status, `이미 출석 완료 (${t})`, false);
+        }
+        await loadAttendances();
+      } catch (e) {
+        setStatus(status, '기록 실패: ' + e.message, false);
+      }
+    };
+
+    document.getElementById('btnLoadAttendances').onclick = async () => {
+      try {
+        await loadAttendances();
+      } catch (e) {
+        alert('조회 실패: ' + e.message);
+      }
+    };
+
+    if (location.origin) {
+      document.getElementById('baseUrl').value = location.origin;
+    }
+    if (!document.getElementById('filterDate').value) {
+      document.getElementById('filterDate').value = new Date().toISOString().slice(0, 10);
+    }
+
+    (async () => {
+      try {
+        await loadPersons();
+        await loadAttendances();
+      } catch (e) {
+        alert('초기 로딩 실패: ' + e.message);
+      }
+    })();
+  </script>
+</body>
+</html>

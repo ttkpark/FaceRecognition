@@ -17,9 +17,10 @@ class Settings(BaseSettings):
     max_images_per_register: int = 5
     face_cascade_path: str = ""
     # 미등록 얼굴 (C+B 방식)
-    cluster_similarity_threshold: float = 0.88  # 같은 사람으로 묶을 최소 유사도 (높을수록 엄격)
-    unknown_min_face_size: int = 60  # 저장할 최소 얼굴 크기 (w,h) - 품질 보장
-    unknown_consecutive_frames: int = 4  # 연속 N프레임 미등록 시에만 저장
+    cluster_similarity_threshold: float = 0.85  # 스트리밍 시 같은 사람으로 볼 유사도
+    unknown_cluster_merge_threshold: float = 0.75  # 클러스터링 실행 시 묶을 유사도 (낮을수록 한 사람으로 많이 묶임)
+    unknown_min_face_size: int = 45  # 저장할 최소 얼굴 크기 (w,h) - 품질 보장
+    unknown_consecutive_frames: int = 2  # 연속 N프레임 미등록 시 저장 (2=더 쉽게 저장)
 
     class Config:
         env_file = ".env"

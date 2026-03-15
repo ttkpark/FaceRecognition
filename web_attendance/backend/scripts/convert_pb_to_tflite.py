@@ -13,7 +13,18 @@ try:
     import tensorflow as tf
 except ImportError:
     print("오류: TensorFlow가 설치되어 있지 않습니다.")
-    print("설치: pip install tensorflow")
+    print()
+    print("TensorFlow는 Python 3.11, 3.12만 지원합니다. (3.13/3.14 미지원)")
+    print()
+    print("해결 방법:")
+    print("  1) Python 3.12 설치 후 전용 가상환경에서 변환:")
+    print("     py -3.12 -m venv venv_tf")
+    print("     venv_tf\\Scripts\\activate")
+    print("     pip install tensorflow")
+    print("     python scripts/convert_pb_to_tflite.py --pb_file ... --output ...")
+    print()
+    print("  2) 또는 배치 파일 사용 (Python 3.12 있으면 자동으로 venv 생성):")
+    print("     scripts\\convert_with_tf.bat MobileFaceNet_9925_9680.pb")
     sys.exit(1)
 
 
@@ -67,12 +78,12 @@ def convert_pb_to_tflite(pb_file: Path, output_file: Path,
         with open(output_file, 'wb') as f:
             f.write(tflite_model)
         
-        print(f"✓ 변환 완료: {output_file}")
+        print("[완료] 변환 완료:", output_file)
         print(f"  파일 크기: {output_file.stat().st_size / 1024 / 1024:.2f} MB")
         return True
         
     except Exception as e:
-        print(f"✗ 변환 실패: {e}")
+        print("[실패] 변환 실패:", e)
         print()
         print("문제 해결:")
         print("1. 입력/출력 노드 이름 확인:")

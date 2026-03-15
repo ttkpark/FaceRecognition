@@ -14,8 +14,9 @@
     .status.disconnected { background: #da3633; color: #fff; }
     .status.connecting { background: #6e7681; color: #fff; }
     .main { padding: 20px; display: flex; flex-direction: column; align-items: center; min-height: calc(100vh - 60px); }
-    #videoContainer { position: relative; max-width: 100%; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.4); }
-    #streamImg { display: block; max-width: 100%; max-height: 80vh; background: #000; }
+    #videoContainer { position: relative; max-width: 100%; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.4); display: inline-block; }
+    #streamImg { display: block; max-width: 100%; max-height: 80vh; background: #000; vertical-align: top; }
+    #faceOverlay { position: absolute; left: 0; top: 0; pointer-events: none; }
     .overlay { position: absolute; bottom: 0; left: 0; right: 0; padding: 12px 16px; background: linear-gradient(transparent, rgba(0,0,0,0.8)); color: #fff; font-size: 14px; }
     .overlay .recognition { font-weight: 600; color: #7ee787; }
     .overlay .recognition.unknown { color: #f85149; }
@@ -30,6 +31,8 @@
 <body>
   <div class="header">
     <h1>실시간 카메라 스트림</h1>
+    <a href="/attendance" style="color:#58a6ff; text-decoration:none;">출석 관리</a>
+    <a href="/" style="color:#58a6ff; text-decoration:none;">관리 홈</a>
     <input type="text" id="wsUrl" value="ws://localhost:8000/ws/stream" placeholder="ws://서버:8000/ws/stream" />
     <button id="btnConnect">연결</button>
     <span id="status" class="status disconnected">연결 안됨</span>
@@ -37,6 +40,7 @@
   <div class="main">
     <div id="videoContainer" style="display:none;">
       <img id="streamImg" alt="스트림" />
+      <canvas id="faceOverlay" aria-hidden="true"></canvas>
       <div class="overlay" id="overlay"></div>
       <div id="frameInfo" style="position:absolute;top:8px;right:8px;background:rgba(0,0,0,0.6);padding:4px 8px;border-radius:6px;font-size:12px;">프레임: 0</div>
     </div>
@@ -56,9 +60,49 @@
     const overlayEl = document.getElementById('overlay');
     const placeholder = document.getElementById('placeholder');
     const frameInfoEl = document.getElementById('frameInfo');
+    const faceOverlay = document.getElementById('faceOverlay');
     let ws = null;
     let frameCount = 0;
     let receivedFirstFrame = false;
+    let lastFaceBoxes = [];
+    let lastLabels = [];
+
+    function drawFaceBox() {
+      if (!faceOverlay || !streamImg) return;
+      const w = streamImg.offsetWidth || streamImg.clientWidth;
+      const h = streamImg.offsetHeight || streamImg.clientHeight;
+      if (w <= 0 || h <= 0) return;
+      faceOverlay.width = w;
+      faceOverlay.height = h;
+      faceOverlay.style.width = w + 'px';
+      faceOverlay.style.height = h + 'px';
+      const ctx = faceOverlay.getContext('2d');
+      ctx.clearRect(0, 0, w, h);
+      if (!lastFaceBoxes.length) return;
+
+      ctx.lineWidth = 3;
+      ctx.font = 'bold 16px "Segoe UI", sans-serif';
+      for (let i = 0; i < lastFaceBoxes.length; i++) {
+        const box = lastFaceBoxes[i];
+        const label = lastLabels[i] || '미등록';
+        const x = box.x * w;
+        const y = box.y * h;
+        const bw = box.w * w;
+        const bh = box.h * h;
+        const unknown = label === '미등록';
+        ctx.strokeStyle = unknown ? '#f85149' : '#7ee787';
+        ctx.strokeRect(x, y, bw, bh);
+        const text = label;
+        const tw = ctx.measureText(text).width;
+        const th = 20;
+        const tx = Math.max(0, Math.min(x, w - tw - 8));
+        const ty = Math.max(th, y - 4);
+        ctx.fillStyle = unknown ? 'rgba(248,81,73,0.9)' : 'rgba(126,231,135,0.9)';
+        ctx.fillRect(tx, ty - th, tw + 8, th + 4);
+        ctx.fillStyle = '#0d1117';
+        ctx.fillText(text, tx + 4, ty - 6);
+      }
+    }
 
     function updateFrameInfo() {
       if (frameInfoEl) frameInfoEl.textContent = '프레임: ' + frameCount;
@@ -107,10 +151,21 @@
             frameCount++;
             updateFrameInfo();
             if (!receivedFirstFrame) { receivedFirstFrame = true; setStatus('connected', '연결됨'); }
+            lastFaceBoxes = Array.isArray(msg.faceBoxes) ? msg.faceBoxes : (msg.faceBox ? [msg.faceBox] : []);
+            lastLabels = Array.isArray(msg.labels) ? msg.labels : (msg.label ? [msg.label] : []);
             streamImg.src = 'data:image/jpeg;base64,' + msg.image;
             if (msg.recognition) {
               const r = msg.recognition;
-              if (r.matched && r.person) {
+              if (Array.isArray(r.matches) && r.matches.length) {
+                const names = r.matches
+                  .filter(m => m.matched && m.person && m.person.name)
+                  .map(m => m.person.name);
+                if (names.length) {
+                  overlayEl.innerHTML = '<span class="recognition">' + names.join(', ') + ' 인식</span>';
+                } else {
+                  overlayEl.innerHTML = '<span class="recognition unknown">미등록</span>';
+                }
+              } else if (r.matched && r.person) {
                 overlayEl.innerHTML = '<span class="recognition">' + r.person.name + (r.attendanceRecorded ? ' 출석 완료!' : ' (이미 출석)') + '</span>';
               } else {
                 overlayEl.innerHTML = '<span class="recognition unknown">미등록</span>';
@@ -118,6 +173,8 @@
             } else {
               overlayEl.innerHTML = '';
             }
+            requestAnimationFrame(function() { drawFaceBox(); });
+            streamImg.onload = function() { drawFaceBox(); };
           } else {
             console.log('[WebSocket] 알 수 없는 메시지 타입:', msg.type);
           }

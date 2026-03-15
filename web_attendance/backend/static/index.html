@@ -3,189 +3,448 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>얼굴 인식 출석 - 관리</title>
+  <title>얼굴 인식 통합 대시보드</title>
   <style>
     * { box-sizing: border-box; }
-    body { font-family: 'Segoe UI', sans-serif; margin: 20px; background: #1a1a2e; color: #eee; }
-    h1 { color: #0f3460; color: #e94560; }
-    .card { background: #16213e; padding: 16px; border-radius: 8px; margin-bottom: 16px; }
-    .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin-bottom: 8px; }
-    input, select, button { padding: 8px 12px; border-radius: 6px; border: 1px solid #0f3460; background: #1a1a2e; color: #eee; }
-    button { background: #e94560; border: none; cursor: pointer; }
-    button:hover { opacity: 0.9; }
-    button:disabled { opacity: 0.5; cursor: not-allowed; }
-    table { width: 100%; border-collapse: collapse; }
-    th, td { padding: 8px; text-align: left; border-bottom: 1px solid #0f3460; }
-    .status { display: inline-block; padding: 4px 8px; border-radius: 4px; font-size: 12px; }
-    .status.ok { background: #0f3460; color: #7f; }
-    .status.err { background: #600; color: #f88; }
-    #baseUrl { width: 280px; }
+    body { margin: 0; font-family: "Segoe UI", sans-serif; background: #0b1220; color: #e6edf3; }
+    a { color: #7cb8ff; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .container { max-width: 1600px; margin: 0 auto; padding: 18px; }
+    .topbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; background: #10192a; border: 1px solid #263247; border-radius: 12px; padding: 12px; }
+    .topbar h1 { margin: 0 14px 0 0; font-size: 1.2rem; color: #8bc2ff; }
+    .chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 999px; font-size: 12px; background: #1b2538; border: 1px solid #2b3b57; }
+    .chip.ok { color: #7ee787; border-color: #2f7a44; }
+    .chip.warn { color: #f2cc60; border-color: #886d1f; }
+    .chip.err { color: #ff9aa2; border-color: #7a2f3a; }
+    .input, .select, .btn { background: #0d1523; color: #e6edf3; border: 1px solid #2d3b53; border-radius: 8px; padding: 8px 12px; }
+    .input, .select { min-height: 36px; }
+    .btn { cursor: pointer; background: #1f6feb; border-color: #1f6feb; }
+    .btn:hover { background: #388bfd; }
+    .btn.secondary { background: #1b2538; border-color: #2d3b53; }
+    .btn.danger { background: #da3633; border-color: #da3633; }
+    .btn.success { background: #238636; border-color: #238636; }
+    .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+    .grid { display: grid; grid-template-columns: 1.5fr 1fr 1fr; gap: 14px; margin-top: 14px; align-items: start; }
+    .card { background: #10192a; border: 1px solid #263247; border-radius: 12px; padding: 14px; }
+    .card h2 { margin: 0 0 10px; color: #8bc2ff; font-size: 1.02rem; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .muted { color: #8b949e; font-size: 12px; }
+    .stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+    .stat { background: #0d1523; border: 1px solid #2d3b53; border-radius: 10px; padding: 10px; }
+    .stat .k { font-size: 11px; color: #8b949e; }
+    .stat .v { margin-top: 2px; font-size: 1.2rem; font-weight: 700; color: #7ee787; }
+    #videoWrap { position: relative; width: 100%; background: #05080f; border-radius: 10px; overflow: hidden; border: 1px solid #29354c; }
+    #streamImg { width: 100%; min-height: 280px; display: block; background: #000; }
+    #faceOverlay { position: absolute; left: 0; top: 0; pointer-events: none; }
+    #streamOverlay { position: absolute; left: 0; right: 0; bottom: 0; padding: 10px; background: linear-gradient(transparent, rgba(0, 0, 0, 0.88)); font-weight: 600; }
+    #streamOverlay.unknown { color: #f85149; }
+    #streamOverlay.matched { color: #7ee787; }
+    #frameBadge { position: absolute; right: 8px; top: 8px; background: rgba(0,0,0,0.65); border-radius: 6px; padding: 4px 8px; font-size: 12px; }
+    .tableWrap { max-height: 260px; overflow: auto; border: 1px solid #2d3b53; border-radius: 10px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { border-bottom: 1px solid #263247; padding: 8px 10px; text-align: left; }
+    th { background: #0d1523; position: sticky; top: 0; color: #8b949e; }
+    .list { max-height: 280px; overflow: auto; border: 1px solid #2d3b53; border-radius: 10px; }
+    .personRow { display: flex; justify-content: space-between; align-items: center; padding: 8px 10px; border-bottom: 1px solid #263247; }
+    .personRow:last-child { border-bottom: none; }
+    .clusters { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; margin-top: 10px; }
+    .clusterCard { background: #0d1523; border: 1px solid #2d3b53; border-radius: 10px; padding: 10px; }
+    .clusterCard img { width: 100%; aspect-ratio: 1 / 1; border-radius: 8px; object-fit: cover; border: 1px solid #2d3b53; }
+    .clusterMeta { margin: 8px 0; font-size: 12px; color: #8b949e; }
+    .spacer { flex: 1 1 auto; }
+    .help { margin-top: 10px; background: #0d1523; border: 1px solid #2d3b53; border-radius: 10px; padding: 10px; }
+    .help ol { margin: 6px 0 0 16px; padding: 0; color: #8b949e; font-size: 12px; }
+    .help li { margin: 4px 0; }
+    @media (max-width: 1300px) { .grid { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body>
-  <h1>얼굴 인식 출석 시스템</h1>
-  <div class="card">
-    <a href="/stream" style="color:#58a6ff;">실시간 스트림 뷰어</a> |
-    <a href="/unknown" style="color:#58a6ff;">미등록 얼굴 관리</a>
-  </div>
-  <div class="card">
-    <div class="row">
-      <label>서버 주소:</label>
-      <input type="text" id="baseUrl" value="http://localhost:8000" placeholder="http://localhost:8000" />
-      <button type="button" id="btnHealth">연결 확인</button>
-      <span id="healthStatus"></span>
+  <div class="container">
+    <div class="topbar">
+      <h1>얼굴 인식 통합 대시보드</h1>
+      <input class="input" id="baseUrl" value="http://localhost:8000" style="min-width:220px;" />
+      <input class="input" id="wsUrl" value="ws://localhost:8000/ws/stream" style="min-width:260px;" />
+      <button class="btn success" id="btnHealth">연결 확인</button>
+      <button class="btn" id="btnWsConnect">스트림 연결</button>
+      <button class="btn secondary" id="btnReloadAll">전체 새로고침</button>
+      <span id="healthChip" class="chip warn">상태 확인 전</span>
+      <span id="wsChip" class="chip err">WS 연결 안됨</span>
+      <span class="spacer"></span>
+      <a href="/attendance">출석 페이지</a>
+      <a href="/stream">스트림 페이지</a>
+      <a href="/unknown">미등록 관리</a>
     </div>
-  </div>
-  <div class="card">
-    <h2>출석 기록</h2>
-    <div class="row">
-      <input type="date" id="filterDate" />
-      <button type="button" id="btnLoadAttendances">조회</button>
-      <button type="button" id="btnExport">Excel 내보내기</button>
+
+    <div class="grid">
+      <section class="card">
+        <h2>실시간 카메라 스트림</h2>
+        <div id="videoWrap">
+          <img id="streamImg" alt="실시간 스트림" />
+          <canvas id="faceOverlay" aria-hidden="true"></canvas>
+          <div id="frameBadge">프레임: 0</div>
+          <div id="streamOverlay">프레임 대기 중</div>
+        </div>
+        <p class="muted" style="margin-top:8px;">Flutter에서 스트리밍을 시작하면 영상과 얼굴 박스/라벨이 표시됩니다.</p>
+        <div class="help">
+          <div class="muted">사용 순서</div>
+          <ol>
+            <li>서버 주소를 확인하고 <strong>연결 확인</strong>을 누르세요.</li>
+            <li><strong>스트림 연결</strong> 후 Flutter 앱 스트림 전송을 시작하세요.</li>
+            <li>미등록 얼굴이 쌓이면 아래 클러스터링에서 이름 등록하세요.</li>
+          </ol>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>출석 인원/기록 관리</h2>
+        <div class="stats" style="margin-bottom:10px;">
+          <div class="stat"><div class="k">오늘 출석</div><div class="v" id="statToday">0</div></div>
+          <div class="stat"><div class="k">전체 사용자</div><div class="v" id="statPersons">0</div></div>
+          <div class="stat"><div class="k">오늘 기록 수</div><div class="v" id="statRows">0</div></div>
+        </div>
+        <div class="row" style="margin-bottom:8px;">
+          <label for="filterDate">날짜</label>
+          <input class="input" type="date" id="filterDate" />
+          <button class="btn secondary" id="btnLoadAttendances">조회</button>
+          <button class="btn secondary" id="btnExport">Excel</button>
+        </div>
+        <div class="row" style="margin-bottom:8px;">
+          <select class="select" id="markPerson" style="min-width:160px;"></select>
+          <button class="btn success" id="btnMarkAttendance">선택 인원 출석 처리</button>
+        </div>
+        <div class="tableWrap">
+          <table>
+            <thead><tr><th>날짜</th><th>이름</th><th>출석 시각</th></tr></thead>
+            <tbody id="attendancesBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>기존 인원 관리</h2>
+        <div class="row" style="margin-bottom:8px;">
+          <button class="btn secondary" id="btnLoadPersons">목록 새로고침</button>
+          <span class="muted">삭제는 출석 기록과 별개입니다.</span>
+        </div>
+        <div id="personsList" class="list"></div>
+      </section>
     </div>
-    <table>
-      <thead><tr><th>날짜</th><th>이름</th><th>출석 시각</th></tr></thead>
-      <tbody id="attendancesBody"></tbody>
-    </table>
+
+    <section class="card" style="margin-top:14px;">
+      <h2>얼굴 클러스터링 관리 (미등록 얼굴)</h2>
+      <div class="row">
+        <button class="btn" id="btnCluster">클러스터링 실행</button>
+        <button class="btn secondary" id="btnUnknownCount">미등록 수 확인</button>
+        <span id="clusterStatus" class="muted">대기 중</span>
+      </div>
+      <div id="clustersContainer" class="clusters"></div>
+    </section>
   </div>
-  <div class="card">
-    <h2>등록 사용자</h2>
-    <button type="button" id="btnLoadPersons">목록 새로고침</button>
-    <ul id="personsList"></ul>
-  </div>
-  <div class="card">
-    <h2>미등록 얼굴 (C+B 방식)</h2>
-    <p style="font-size:12px; color:#8b949e;">스트리밍 중 인식되지 않은 얼굴이 연속 4프레임 이상 감지되면 자동 저장됩니다. 클러스터링 후 이름을 부여해 등록하세요.</p>
-    <div class="row" style="margin-top:12px;">
-      <button type="button" id="btnLoadUnknown">미등록 목록</button>
-      <button type="button" id="btnCluster">클러스터링 (같은 사람 묶기)</button>
-    </div>
-    <div id="clustersContainer" style="margin-top:16px; display:flex; flex-wrap:wrap; gap:16px;"></div>
-  </div>
+
   <script>
-    function base() { return document.getElementById('baseUrl').value.replace(/\/$/, ''); }
+    const $ = (id) => document.getElementById(id);
+    const state = {
+      ws: null,
+      frameCount: 0,
+      faceBoxes: [],
+      labels: [],
+      persons: [],
+      clusters: []
+    };
+
+    function todayIso() {
+      return new Date().toISOString().slice(0, 10);
+    }
+
+    function base() {
+      return $("baseUrl").value.replace(/\/$/, "");
+    }
+
     async function api(path, opts = {}) {
-      const url = base() + path;
-      const res = await fetch(url, { ...opts, headers: { ...opts.headers } });
+      const res = await fetch(base() + path, { ...opts });
       if (!res.ok) throw new Error(await res.text());
       if (res.status === 204) return null;
-      const ct = res.headers.get('content-type') || '';
-      if (ct.includes('json')) return res.json();
-      return res.text();
+      const ct = res.headers.get("content-type") || "";
+      return ct.includes("json") ? res.json() : res.text();
     }
-    document.getElementById('btnHealth').onclick = async () => {
-      const el = document.getElementById('healthStatus');
-      el.textContent = '확인 중...';
-      el.className = 'status';
-      try {
-        const d = await api('/api/health');
-        el.textContent = d.ml_model_loaded ? '연결됨 (ML 로드됨)' : '연결됨 (ML 미로드)';
-        el.className = 'status ok';
-      } catch (e) {
-        el.textContent = '연결 실패';
-        el.className = 'status err';
-      }
-    };
-    document.getElementById('btnLoadAttendances').onclick = async () => {
-      const date = document.getElementById('filterDate').value;
-      const q = date ? '?date=' + date : '';
-      try {
-        const d = await api('/api/attendances' + q);
-        const tbody = document.getElementById('attendancesBody');
-        tbody.innerHTML = d.attendances.map(a => {
-          const time = a.timestamp ? new Date(a.timestamp).toLocaleString('ko-KR') : '-';
-          return `<tr><td>${a.date}</td><td>${a.personName || a.personId}</td><td>${time}</td></tr>`;
-        }).join('') || '<tr><td colspan="3">기록 없음</td></tr>';
-      } catch (e) {
-        alert('조회 실패: ' + e.message);
-      }
-    };
-    document.getElementById('btnExport').onclick = async () => {
-      const from = document.getElementById('filterDate').value || new Date().toISOString().slice(0,10);
-      const to = from;
-      window.open(base() + '/api/attendances/export?from=' + from + '&to=' + to + '&format=xlsx', '_blank');
-    };
-    document.getElementById('btnLoadPersons').onclick = async () => {
-      try {
-        const d = await api('/api/persons');
-        const ul = document.getElementById('personsList');
-        ul.innerHTML = d.persons.map(p => `<li>${p.name} (ID: ${p.id})</li>`).join('') || '<li>없음</li>';
-      } catch (e) {
-        alert('목록 실패: ' + e.message);
-      }
-    };
-    if (document.getElementById('filterDate').value === '') {
-      document.getElementById('filterDate').value = new Date().toISOString().slice(0, 10);
-    }
-    document.getElementById('btnLoadAttendances').click();
 
-    // 미등록 얼굴
-    document.getElementById('btnLoadUnknown').onclick = async () => {
-      try {
-        const d = await api('/api/unknown-faces');
-        const cnt = d.unknownFaces?.length || 0;
-        alert('미등록 얼굴 ' + cnt + '건. [클러스터링]을 눌러 같은 사람끼리 묶으세요.');
-      } catch (e) {
-        alert('조회 실패: ' + e.message);
+    function updateChip(el, mode, text) {
+      el.className = "chip " + mode;
+      el.textContent = text;
+    }
+
+    function formatTime(ts) {
+      if (!ts) return "-";
+      return new Date(ts).toLocaleString("ko-KR", { hour12: false });
+    }
+
+    function drawFaceOverlay() {
+      const img = $("streamImg");
+      const cvs = $("faceOverlay");
+      const w = img.clientWidth;
+      const h = img.clientHeight;
+      if (!w || !h) return;
+      cvs.width = w;
+      cvs.height = h;
+      cvs.style.width = w + "px";
+      cvs.style.height = h + "px";
+      const ctx = cvs.getContext("2d");
+      ctx.clearRect(0, 0, w, h);
+      if (!state.faceBoxes.length) return;
+      ctx.lineWidth = 3;
+      ctx.font = "bold 14px Segoe UI";
+      for (let i = 0; i < state.faceBoxes.length; i++) {
+        const b = state.faceBoxes[i];
+        const label = state.labels[i] || "미등록";
+        const x = b.x * w;
+        const y = b.y * h;
+        const bw = b.w * w;
+        const bh = b.h * h;
+        const unknown = label === "미등록";
+        ctx.strokeStyle = unknown ? "#f85149" : "#7ee787";
+        ctx.strokeRect(x, y, bw, bh);
+        const tw = ctx.measureText(label).width;
+        const tx = Math.max(0, Math.min(x, w - tw - 10));
+        const ty = Math.max(20, y - 4);
+        ctx.fillStyle = unknown ? "rgba(248,81,73,0.9)" : "rgba(126,231,135,0.9)";
+        ctx.fillRect(tx, ty - 18, tw + 8, 20);
+        ctx.fillStyle = "#0b1220";
+        ctx.fillText(label, tx + 4, ty - 4);
       }
-    };
-    document.getElementById('btnCluster').onclick = async () => {
-      const container = document.getElementById('clustersContainer');
-      container.innerHTML = '<span>처리 중...</span>';
-      try {
-        const d = await api('/api/unknown-faces/cluster', { method: 'POST' });
-        const clusters = d.clusters || [];
-        if (clusters.length === 0) {
-          container.innerHTML = '<p style="color:#8b949e;">미등록 얼굴이 없거나 클러스터링할 데이터가 없습니다.</p>';
-          return;
+    }
+
+    function connectWs() {
+      const url = $("wsUrl").value.trim();
+      if (!url) return alert("WebSocket URL을 입력하세요.");
+      if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+        state.ws.close();
+      }
+      updateChip($("wsChip"), "warn", "WS 연결 중...");
+      state.frameCount = 0;
+      $("frameBadge").textContent = "프레임: 0";
+      $("streamOverlay").className = "";
+      $("streamOverlay").textContent = "프레임 대기 중";
+
+      state.ws = new WebSocket(url);
+      state.ws.onopen = () => updateChip($("wsChip"), "ok", "WS 연결됨");
+      state.ws.onclose = () => updateChip($("wsChip"), "err", "WS 연결 끊김");
+      state.ws.onerror = () => updateChip($("wsChip"), "err", "WS 오류");
+      state.ws.onmessage = (ev) => {
+        if (typeof ev.data !== "string") return;
+        let msg;
+        try { msg = JSON.parse(ev.data); } catch { return; }
+        if (msg.type !== "frame" || !msg.image) return;
+        state.frameCount += 1;
+        $("frameBadge").textContent = "프레임: " + state.frameCount;
+        state.faceBoxes = Array.isArray(msg.faceBoxes) ? msg.faceBoxes : (msg.faceBox ? [msg.faceBox] : []);
+        state.labels = Array.isArray(msg.labels) ? msg.labels : (msg.label ? [msg.label] : []);
+        $("streamImg").src = "data:image/jpeg;base64," + msg.image;
+        if (msg.recognition?.matched) {
+          const names = Array.isArray(msg.recognition.matches)
+            ? msg.recognition.matches.filter((m) => m.matched && m.person?.name).map((m) => m.person.name)
+            : (msg.recognition.person?.name ? [msg.recognition.person.name] : []);
+          $("streamOverlay").className = "matched";
+          $("streamOverlay").textContent = names.length ? (names.join(", ") + " 인식") : "인식됨";
+        } else {
+          $("streamOverlay").className = "unknown";
+          $("streamOverlay").textContent = "미등록 또는 인식 실패";
         }
-        container.innerHTML = clusters.map(c => {
-          const time = new Date(c.firstSeen).toLocaleString('ko-KR');
-          return `
-            <div class="cluster-card" data-id="${c.clusterId}" style="background:#0d1117; padding:12px; border-radius:8px; border:1px solid #30363d; min-width:180px;">
-              <img src="data:image/jpeg;base64,${c.thumbnail}" alt="" style="width:120px;height:120px;object-fit:cover;border-radius:6px;display:block;margin-bottom:8px;" />
-              <div style="font-size:12px; color:#8b949e;">프레임 ${c.count}회 · ${time}</div>
-              <div class="row" style="margin-top:8px;">
-                <input type="text" class="cluster-name" placeholder="이름 입력" style="flex:1; min-width:80px;" />
-                <button type="button" class="btnRegister">등록</button>
-                <button type="button" class="btnDelete">삭제</button>
-              </div>
-            </div>`;
-        }).join('');
-        container.querySelectorAll('.btnRegister').forEach((btn, i) => {
-          btn.onclick = async () => {
-            const card = btn.closest('.cluster-card');
-            const nameInput = card.querySelector('.cluster-name');
-            const name = nameInput.value.trim();
-            if (!name) { alert('이름을 입력하세요.'); return; }
-            try {
-              const fd = new FormData();
-              fd.append('clusterId', clusters[i].clusterId);
-              fd.append('name', name);
-              await api('/api/unknown-faces/register', { method: 'POST', body: fd });
-              alert('등록 완료: ' + name);
-              card.remove();
-              document.getElementById('btnLoadPersons').click();
-            } catch (e) {
-              alert('등록 실패: ' + e.message);
-            }
-          };
-        });
-        container.querySelectorAll('.btnDelete').forEach((btn, i) => {
-          btn.onclick = async () => {
-            if (!confirm('이 클러스터를 삭제하시겠습니까?')) return;
-            try {
-              await api('/api/unknown-faces/cluster/' + clusters[i].clusterId, { method: 'DELETE' });
-              btn.closest('.cluster-card').remove();
-            } catch (e) {
-              alert('삭제 실패: ' + e.message);
-            }
-          };
-        });
+        requestAnimationFrame(drawFaceOverlay);
+        $("streamImg").onload = drawFaceOverlay;
+      };
+    }
+
+    async function loadHealth() {
+      try {
+        const d = await api("/api/health");
+        updateChip($("healthChip"), d.ml_model_loaded ? "ok" : "warn", d.ml_model_loaded ? "서버/ML 정상" : "서버 정상 (ML 미로드)");
       } catch (e) {
-        container.innerHTML = '<p style="color:#f85149;">클러스터링 실패: ' + e.message + '</p>';
+        updateChip($("healthChip"), "err", "서버 연결 실패");
       }
+    }
+
+    async function loadPersons() {
+      const d = await api("/api/persons");
+      state.persons = d.persons || [];
+      $("statPersons").textContent = String(state.persons.length);
+      $("markPerson").innerHTML = state.persons.length
+        ? state.persons.map((p) => `<option value="${p.id}">${p.name} (ID:${p.id})</option>`).join("")
+        : `<option value="">사용자 없음</option>`;
+      $("personsList").innerHTML = state.persons.length
+        ? state.persons.map((p) => `
+          <div class="personRow">
+            <span>${p.name} (ID:${p.id})</span>
+            <button class="btn danger" data-del-person="${p.id}">삭제</button>
+          </div>
+        `).join("")
+        : `<div class="personRow"><span class="muted">등록된 사용자가 없습니다.</span></div>`;
+
+      document.querySelectorAll("[data-del-person]").forEach((btn) => {
+        btn.onclick = async () => {
+          const id = btn.getAttribute("data-del-person");
+          const name = state.persons.find((p) => String(p.id) === String(id))?.name || id;
+          if (!confirm(`${name} 사용자를 삭제할까요?`)) return;
+          try {
+            await api("/api/persons/" + id, { method: "DELETE" });
+            await loadPersons();
+            await loadAttendances();
+          } catch (e) {
+            alert("삭제 실패: " + e.message);
+          }
+        };
+      });
+    }
+
+    async function loadAttendances() {
+      const date = $("filterDate").value;
+      const q = date ? "?date=" + encodeURIComponent(date) : "";
+      const d = await api("/api/attendances" + q);
+      const rows = d.attendances || [];
+      $("statRows").textContent = String(rows.length);
+      const today = todayIso();
+      const todayUnique = new Set(rows.filter((r) => r.date === today).map((r) => String(r.personId)));
+      $("statToday").textContent = String(todayUnique.size);
+      $("attendancesBody").innerHTML = rows.length
+        ? rows.map((r) => `<tr><td>${r.date}</td><td>${r.personName || r.personId}</td><td>${formatTime(r.timestamp)}</td></tr>`).join("")
+        : `<tr><td colspan="3">기록 없음</td></tr>`;
+    }
+
+    async function markAttendance() {
+      const personId = $("markPerson").value;
+      if (!personId) return alert("출석 처리할 사용자를 선택하세요.");
+      const fd = new FormData();
+      fd.append("personId", personId);
+      const d = await api("/api/attendances/mark", { method: "POST", body: fd });
+      if (d.recorded) {
+        alert(`${d.attendance.personName} 출석 처리 완료`);
+      } else {
+        alert("이미 출석한 사용자입니다.");
+      }
+      await loadAttendances();
+    }
+
+    async function loadUnknownCount() {
+      const d = await api("/api/unknown-faces");
+      $("clusterStatus").textContent = `미등록 얼굴 ${d.unknownFaces?.length || 0}건`;
+    }
+
+    async function runClustering() {
+      const container = $("clustersContainer");
+      $("clusterStatus").textContent = "클러스터링 실행 중...";
+      container.innerHTML = "";
+      const d = await api("/api/unknown-faces/cluster", { method: "POST" });
+      state.clusters = d.clusters || [];
+      if (!state.clusters.length) {
+        $("clusterStatus").textContent = "클러스터 데이터 없음";
+        container.innerHTML = `<div class="muted">미등록 얼굴이 없거나 묶을 수 있는 데이터가 없습니다.</div>`;
+        return;
+      }
+      $("clusterStatus").textContent = `클러스터 ${state.clusters.length}개`;
+      container.innerHTML = state.clusters.map((c, i) => `
+        <div class="clusterCard" data-cluster-idx="${i}">
+          <img src="data:image/jpeg;base64,${c.thumbnail}" alt="cluster" />
+          <div class="clusterMeta">프레임 ${c.count}회 · ${new Date(c.firstSeen).toLocaleString("ko-KR")}</div>
+          <input class="input" placeholder="이름 입력" data-name-input="${i}" style="width:100%; margin-bottom:8px;" />
+          <div class="row">
+            <button class="btn success" data-register-cluster="${i}">등록</button>
+            <button class="btn danger" data-delete-cluster="${i}">삭제</button>
+          </div>
+        </div>
+      `).join("");
+
+      document.querySelectorAll("[data-register-cluster]").forEach((btn) => {
+        btn.onclick = async () => {
+          const idx = Number(btn.getAttribute("data-register-cluster"));
+          const c = state.clusters[idx];
+          if (!c) return;
+          const name = document.querySelector(`[data-name-input="${idx}"]`).value.trim();
+          if (!name) return alert("이름을 입력하세요.");
+          try {
+            const fd = new FormData();
+            fd.append("clusterId", c.clusterId);
+            fd.append("name", name);
+            await api("/api/unknown-faces/register", { method: "POST", body: fd });
+            document.querySelector(`[data-cluster-idx="${idx}"]`)?.remove();
+            await loadPersons();
+            await loadUnknownCount();
+          } catch (e) {
+            alert("등록 실패: " + e.message);
+          }
+        };
+      });
+
+      document.querySelectorAll("[data-delete-cluster]").forEach((btn) => {
+        btn.onclick = async () => {
+          const idx = Number(btn.getAttribute("data-delete-cluster"));
+          const c = state.clusters[idx];
+          if (!c) return;
+          if (!confirm("이 클러스터를 삭제할까요?")) return;
+          try {
+            await api("/api/unknown-faces/cluster/" + c.clusterId, { method: "DELETE" });
+            document.querySelector(`[data-cluster-idx="${idx}"]`)?.remove();
+            await loadUnknownCount();
+          } catch (e) {
+            alert("삭제 실패: " + e.message);
+          }
+        };
+      });
+    }
+
+    $("btnHealth").onclick = loadHealth;
+    $("btnWsConnect").onclick = connectWs;
+    $("btnLoadPersons").onclick = () => loadPersons().catch((e) => alert("사용자 로드 실패: " + e.message));
+    $("btnLoadAttendances").onclick = () => loadAttendances().catch((e) => alert("출석 조회 실패: " + e.message));
+    $("btnMarkAttendance").onclick = () => markAttendance().catch((e) => alert("출석 처리 실패: " + e.message));
+    $("btnUnknownCount").onclick = () => loadUnknownCount().catch((e) => alert("조회 실패: " + e.message));
+    $("btnReloadAll").onclick = () => reloadAll().catch((e) => alert("새로고침 실패: " + e.message));
+    $("btnCluster").onclick = () => runClustering().catch((e) => {
+      $("clusterStatus").textContent = "클러스터링 실패";
+      alert("클러스터링 실패: " + e.message);
+    });
+    $("baseUrl").addEventListener("change", syncWsWithBaseUrl);
+    $("baseUrl").addEventListener("blur", syncWsWithBaseUrl);
+    $("btnExport").onclick = () => {
+      const date = $("filterDate").value || todayIso();
+      window.open(base() + `/api/attendances/export?from=${date}&to=${date}&format=xlsx`, "_blank");
     };
+
+    function setDefaultUrls() {
+      if (location.origin) {
+        $("baseUrl").value = location.origin;
+      }
+      if (location.host) {
+        const proto = location.protocol === "https:" ? "wss:" : "ws:";
+        $("wsUrl").value = `${proto}//${location.host}/ws/stream`;
+      }
+    }
+
+    function syncWsWithBaseUrl() {
+      const value = $("baseUrl").value.trim();
+      try {
+        const u = new URL(value);
+        const wsProto = u.protocol === "https:" ? "wss:" : "ws:";
+        $("wsUrl").value = `${wsProto}//${u.host}/ws/stream`;
+      } catch (_) {
+        // URL 입력 중 에러는 무시
+      }
+    }
+
+    async function reloadAll() {
+      await loadHealth();
+      await loadPersons();
+      await loadAttendances();
+      await loadUnknownCount();
+    }
+
+    (async () => {
+      setDefaultUrls();
+      $("filterDate").value = todayIso();
+      await reloadAll();
+      connectWs();
+    })().catch((e) => {
+      console.error(e);
+      alert("초기 로딩 실패: " + e.message);
+    });
   </script>
 </body>
 </html>

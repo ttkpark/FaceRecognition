@@ -90,9 +90,10 @@ async def cluster_unknown_faces(db: AsyncSession) -> List[dict]:
 
     id_to_face = {uf.id: uf for uf in faces}
     face_list = [(uf.id, uf.get_embedding()) for uf in faces]
+    # 화면 클러스터링은 더 낮은 임계값 사용 → 크롭/각도 다른 같은 얼굴을 한 그룹으로
     clusters = _cluster_embeddings(
         face_list,
-        settings.cluster_similarity_threshold,
+        settings.unknown_cluster_merge_threshold,
     )
 
     result = []

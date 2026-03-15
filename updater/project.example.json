@@ -1,0 +1,25 @@
+﻿{
+  "repo_path": "..",
+  "branch": "main",
+  "remote": "origin",
+  "log_file": "updater/updater.log",
+  "lock_file": "updater/updater.lock",
+  "skip_if_dirty": true,
+  "auto_push_local_ahead": false,
+  "stop": {
+    "mode": "port",
+    "port": 8001
+  },
+  "start": {
+    "windows": "cmd /c <path_to_windows_start_command>",
+    "linux": "bash <path_to_linux_start_command>"
+  },
+  "setup": {
+    "enabled": true,
+    "windows": "cmd /c <path_to_windows_setup_command>",
+    "linux": "bash <path_to_linux_setup_command>",
+    "run_when_changed": [
+      "requirements.txt"
+    ]
+  }
+}

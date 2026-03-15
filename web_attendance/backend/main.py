@@ -18,7 +18,7 @@ from database import init_db, get_db, PersonModel, AttendanceModel, AsyncSession
 from services.face_service import (
     image_bytes_to_bgr,
     detect_and_embed_all,
-    recognize_and_match,
+    recognize_and_match_all,
     is_ml_ready,
     get_unknown_face_candidate,
 )
@@ -97,6 +97,7 @@ async def websocket_stream(websocket: WebSocket):
     await ws_manager.connect(websocket)
     # 미등록 얼굴 연속 감지 버퍼: [{emb, thumb, first_ts, last_ts, count}, ...]
     unknown_buffer: List[dict] = []
+    last_no_cand_log_ts = 0  # "후보 없음" 로그 throttle
     try:
         while True:
             try:
@@ -121,35 +122,58 @@ async def websocket_stream(websocket: WebSocket):
                 continue
             # 얼굴 인식 (ML 로드 시)
             recognition = None
+            match_results = []
             if is_ml_ready():
                 from database import AsyncSessionLocal
                 async with AsyncSessionLocal() as db:
                     r = await db.execute(select(PersonModel))
                     persons = r.scalars().all()
                     persons_data = [(p.id, p.name, p.get_embeddings()) for p in persons]
-                match = recognize_and_match(img, persons_data)
+                match_results = recognize_and_match_all(img, persons_data)
                 today = time.strftime("%Y-%m-%d", time.localtime())
                 ts = int(time.time() * 1000)
-                if match:
-                    person_id, person_name, similarity = match
-                    async with AsyncSessionLocal() as db:
-                        r2 = await db.execute(
-                            select(AttendanceModel).where(
-                                and_(AttendanceModel.personId == person_id, AttendanceModel.date == today)
-                            )
-                        )
-                        existing = r2.scalar_one_or_none()
+                matches_payload = []
+                matched_any = False
+                attendance_checked_ids = set()
+                for match_result, _ in match_results:
+                    if match_result:
+                        person_id, person_name, similarity = match_result
                         attendance_recorded = False
-                        if not existing:
-                            att = AttendanceModel(personId=person_id, timestamp=ts, date=today)
-                            db.add(att)
-                            await db.commit()
-                            attendance_recorded = True
+                        if person_id not in attendance_checked_ids:
+                            async with AsyncSessionLocal() as db:
+                                r2 = await db.execute(
+                                    select(AttendanceModel).where(
+                                        and_(AttendanceModel.personId == person_id, AttendanceModel.date == today)
+                                    )
+                                )
+                                existing = r2.scalar_one_or_none()
+                                if not existing:
+                                    att = AttendanceModel(personId=person_id, timestamp=ts, date=today)
+                                    db.add(att)
+                                    await db.commit()
+                                    attendance_recorded = True
+                            attendance_checked_ids.add(person_id)
+                        matches_payload.append(
+                            {
+                                "matched": True,
+                                "person": {"id": person_id, "name": person_name},
+                                "similarity": round(similarity, 4),
+                                "attendanceRecorded": attendance_recorded,
+                            }
+                        )
+                        matched_any = True
+                    else:
+                        matches_payload.append({"matched": False})
+
+                if matched_any:
+                    first_match = next((m for m in matches_payload if m.get("matched")), None)
                     recognition = {
                         "matched": True,
-                        "person": {"id": person_id, "name": person_name},
-                        "similarity": round(similarity, 4),
-                        "attendanceRecorded": attendance_recorded,
+                        "matches": matches_payload,
+                        # 기존 단일 결과 필드 호환
+                        "person": first_match["person"] if first_match else None,
+                        "similarity": first_match["similarity"] if first_match else None,
+                        "attendanceRecorded": first_match["attendanceRecorded"] if first_match else False,
                     }
                 else:
                     recognition = {"matched": False}
@@ -159,10 +183,10 @@ async def websocket_stream(websocket: WebSocket):
                             img, settings.unknown_min_face_size
                         )
                         if cand:
-                            emb, crop = cand
+                            emb, crop, _ = cand
                             thumb_b64 = _encode_crop_to_base64(crop)
                             ts = int(time.time() * 1000)
-                            # 버퍼에서 유사한 얼굴 찾기 (0.88 이상 = 같은 사람)
+                            # 버퍼에서 유사한 얼굴 찾기 (같은 사람으로 묶기)
                             best_idx = None
                             best_sim = 0.0
                             for i, entry in enumerate(unknown_buffer):
@@ -181,21 +205,64 @@ async def websocket_stream(websocket: WebSocket):
                                             entry["first_ts"], entry["last_ts"], entry["count"]
                                         )
                                     print(f"[Unknown] 미등록 얼굴 저장 (연속 {entry['count']}프레임)")
+                                else:
+                                    print(f"[Unknown] 미등록 후보 누적 (동일인 {unknown_buffer[best_idx]['count']}/{settings.unknown_consecutive_frames}프레임)")
                             else:
                                 unknown_buffer.append({
                                     "emb": emb, "thumb": thumb_b64,
                                     "first_ts": ts, "last_ts": ts, "count": 1,
                                 })
+                                print(f"[Unknown] 미등록 후보 1프레임 감지 (버퍼 {len(unknown_buffer)}건)")
                             # 30초 이상 된 항목 제거
                             cutoff = ts - 30000
                             unknown_buffer[:] = [e for e in unknown_buffer if e["last_ts"] > cutoff]
+                        else:
+                            # 매칭 안 됐지만 후보도 없음: 얼굴 미검출 / 너무 작음 / 임베딩 실패 (5초마다만 로그)
+                            if ts - last_no_cand_log_ts > 5000:
+                                print("[Unknown] 미등록 구간이지만 후보 없음 (얼굴 가깝게·정면 확인)")
+                                last_no_cand_log_ts = ts
             else:
                 recognition = {"matched": False}  # ML 미로드 시
+            # 관심 영역(얼굴 박스) + 라벨: 웹에서 그리기용
+            face_box_payload = None
+            label = None
+            face_boxes_payload = []
+            labels = []
+            if match_results:
+                h_img, w_img = img.shape[:2]
+                matches = recognition.get("matches", []) if recognition else []
+                for i, (_, box) in enumerate(match_results):
+                    x, y, w, h = box
+                    face_boxes_payload.append(
+                        {
+                            "x": x / w_img,
+                            "y": y / h_img,
+                            "w": w / w_img,
+                            "h": h / h_img,
+                        }
+                    )
+                    if i < len(matches) and matches[i].get("matched") and matches[i].get("person"):
+                        labels.append(matches[i]["person"].get("name") or "등록됨")
+                    else:
+                        labels.append("미등록")
+
+            # 기존 프론트 호환: 첫 번째 얼굴 기준 단일 필드 유지
+            if face_boxes_payload:
+                face_box_payload = face_boxes_payload[0]
+                label = labels[0] if labels else None
             b64 = base64.b64encode(img_bytes).decode("ascii")
             broadcast_count = len(ws_manager.connections) - 1  # exclude self
             print(f"[Stream] 프레임 수신 및 브로드캐스트 (수신자: {broadcast_count}명)")
             await ws_manager.broadcast_frame(
-                {"type": "frame", "image": b64, "recognition": recognition},
+                {
+                    "type": "frame",
+                    "image": b64,
+                    "recognition": recognition,
+                    "faceBox": face_box_payload,
+                    "faceBoxes": face_boxes_payload,
+                    "label": label,
+                    "labels": labels,
+                },
                 exclude=websocket,
             )
             # Flutter 발신자에게 인식 결과만 전송 (UI 표시용)
@@ -347,31 +414,59 @@ async def recognize(
     r = await db.execute(select(PersonModel))
     persons = r.scalars().all()
     persons_data = [(p.id, p.name, p.get_embeddings()) for p in persons]
-    match = recognize_and_match(img, persons_data)
+    match_results = recognize_and_match_all(img, persons_data)
     today = time.strftime("%Y-%m-%d", time.localtime())
     ts = int(time.time() * 1000)
-    attendance_recorded = False
-    if match:
-        person_id, person_name, similarity = match
-        # 오늘 이미 출석했는지 확인
-        r2 = await db.execute(
-            select(AttendanceModel).where(
-                and_(AttendanceModel.personId == person_id, AttendanceModel.date == today)
+    matches = []
+    matched_any = False
+    attendance_checked_ids = set()
+    for match_result, box in match_results:
+        if match_result:
+            person_id, person_name, similarity = match_result
+            attendance_recorded = False
+            if person_id not in attendance_checked_ids:
+                # 오늘 이미 출석했는지 확인
+                r2 = await db.execute(
+                    select(AttendanceModel).where(
+                        and_(AttendanceModel.personId == person_id, AttendanceModel.date == today)
+                    )
+                )
+                existing = r2.scalar_one_or_none()
+                if not existing:
+                    att = AttendanceModel(personId=person_id, timestamp=ts, date=today)
+                    db.add(att)
+                    await db.commit()
+                    attendance_recorded = True
+                attendance_checked_ids.add(person_id)
+            matches.append(
+                {
+                    "matched": True,
+                    "person": {"id": person_id, "name": person_name},
+                    "similarity": round(similarity, 4),
+                    "attendanceRecorded": attendance_recorded,
+                    "box": {"x": box[0], "y": box[1], "w": box[2], "h": box[3]},
+                }
             )
-        )
-        existing = r2.scalar_one_or_none()
-        if not existing:
-            att = AttendanceModel(personId=person_id, timestamp=ts, date=today)
-            db.add(att)
-            await db.commit()
-            attendance_recorded = True
+            matched_any = True
+        else:
+            matches.append(
+                {
+                    "matched": False,
+                    "box": {"x": box[0], "y": box[1], "w": box[2], "h": box[3]},
+                }
+            )
+
+    if matched_any:
+        first_match = next((m for m in matches if m.get("matched")), None)
         return {
             "matched": True,
-            "person": {"id": person_id, "name": person_name},
-            "similarity": round(similarity, 4),
-            "attendanceRecorded": attendance_recorded,
+            "matches": matches,
+            # 기존 응답 호환
+            "person": first_match["person"] if first_match else None,
+            "similarity": first_match["similarity"] if first_match else None,
+            "attendanceRecorded": first_match["attendanceRecorded"] if first_match else False,
         }
-    return {"matched": False, "attendanceRecorded": False}
+    return {"matched": False, "matches": matches, "attendanceRecorded": False}
 
 
 def _attendance_to_dict(a: AttendanceModel, person_name: str = None):
@@ -412,6 +507,45 @@ async def list_attendances(
             names[p.id] = p.name
     return {
         "attendances": [_attendance_to_dict(a, names.get(a.personId)) for a in rows]
+    }
+
+
+@app.post("/api/attendances/mark")
+async def mark_attendance(
+    db: AsyncSession = Depends(get_db),
+    personId: int = Form(...),
+    timestamp: int | None = Form(None),
+):
+    r = await db.execute(select(PersonModel).where(PersonModel.id == personId))
+    person = r.scalar_one_or_none()
+    if not person:
+        raise HTTPException(status_code=404, detail="등록된 사용자가 아닙니다.")
+
+    ts = timestamp if timestamp is not None else int(time.time() * 1000)
+    if ts <= 0:
+        raise HTTPException(status_code=400, detail="유효하지 않은 timestamp 입니다.")
+    date = time.strftime("%Y-%m-%d", time.localtime(ts / 1000))
+
+    r2 = await db.execute(
+        select(AttendanceModel).where(
+            and_(AttendanceModel.personId == personId, AttendanceModel.date == date)
+        )
+    )
+    existing = r2.scalar_one_or_none()
+    if existing:
+        return {
+            "recorded": False,
+            "reason": "already_attended",
+            "attendance": _attendance_to_dict(existing, person.name),
+        }
+
+    att = AttendanceModel(personId=personId, timestamp=ts, date=date)
+    db.add(att)
+    await db.commit()
+    await db.refresh(att)
+    return {
+        "recorded": True,
+        "attendance": _attendance_to_dict(att, person.name),
     }
 
 
@@ -513,6 +647,14 @@ async def unknown_faces_page():
     if (STATIC_DIR / "unknown.html").exists():
         return FileResponse(STATIC_DIR / "unknown.html")
     raise HTTPException(status_code=404, detail="unknown.html not found")
+
+
+@app.get("/attendance")
+async def attendance_page():
+    """출석 관리 페이지"""
+    if (STATIC_DIR / "attendance.html").exists():
+        return FileResponse(STATIC_DIR / "attendance.html")
+    raise HTTPException(status_code=404, detail="attendance.html not found")
 
 
 if __name__ == "__main__":

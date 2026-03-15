@@ -13,3 +13,29 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# updater runtime files
+updater/updater.log
+updater/updater.lock
+# Python runtime artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual environments
+venv/
+.venv/
+**/venv/
+**/.venv/
+
+# Backend runtime/generated files
+web_attendance/backend/attendance.db
+web_attendance/backend/models/
+web_attendance/backend/*.pb
+web_attendance/backend/*.tflite
+web_attendance/backend/updater.log
+web_attendance/backend/updater.lock
+
+# OS/editor noise
+Thumbs.db

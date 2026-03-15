@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'dart:io';
 import '../api/test_client.dart';
@@ -180,17 +181,20 @@ class _StreamTestTab extends StatefulWidget {
   State<_StreamTestTab> createState() => _StreamTestTabState();
 }
 
-class _StreamTestTabState extends State<_StreamTestTab> {
+class _StreamTestTabState extends State<_StreamTestTab> with WidgetsBindingObserver {
+  static const MethodChannel _bgChannel = MethodChannel('background_stream');
   CameraController? _controller;
   List<CameraDescription>? _cameras;
   StreamClient? _streamClient;
   int _frameCount = 0;
   String? _lastResult;
   Timer? _timer;
+  bool _backgroundStreaming = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _init();
   }
 
@@ -223,7 +227,9 @@ class _StreamTestTabState extends State<_StreamTestTab> {
         },
         onConnected: () {
           widget.onLog('WebSocket 연결됨');
-          _startStream();
+          if (!_backgroundStreaming) {
+            _startStream();
+          }
         },
         onError: (e) {
           widget.onLog('WS 오류: $e');
@@ -242,6 +248,50 @@ class _StreamTestTabState extends State<_StreamTestTab> {
     _timer = Timer.periodic(const Duration(milliseconds: 500), (_) => _sendFrame());
   }
 
+  Future<void> _disposeForegroundStreaming() async {
+    _timer?.cancel();
+    _timer = null;
+    _streamClient?.disconnect();
+    _streamClient = null;
+    await _controller?.dispose();
+    _controller = null;
+  }
+
+  Future<void> _startBackgroundStreaming() async {
+    if (widget.baseUrl.trim().isEmpty) {
+      widget.onLog('서버 URL을 먼저 입력하세요.');
+      return;
+    }
+    try {
+      await _disposeForegroundStreaming();
+      await _bgChannel.invokeMethod('startBackgroundStream', {'baseUrl': widget.baseUrl.trim()});
+      if (!mounted) return;
+      setState(() => _backgroundStreaming = true);
+      widget.onLog('백그라운드 스트리밍 시작됨');
+    } catch (e) {
+      widget.onLog('백그라운드 시작 실패: $e');
+    }
+  }
+
+  Future<void> _stopBackgroundStreaming() async {
+    try {
+      await _bgChannel.invokeMethod('stopBackgroundStream');
+      if (!mounted) return;
+      setState(() => _backgroundStreaming = false);
+      widget.onLog('백그라운드 스트리밍 중지됨');
+      await _init();
+    } catch (e) {
+      widget.onLog('백그라운드 중지 실패: $e');
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused && !_backgroundStreaming) {
+      widget.onLog('화면 OFF 감지: 일반 모드에서는 스트림이 중단될 수 있습니다.');
+    }
+  }
+
   Future<void> _sendFrame() async {
     if (_controller == null || !_controller!.value.isInitialized || _streamClient == null || !_streamClient!.isConnected) return;
     try {
@@ -255,6 +305,7 @@ class _StreamTestTabState extends State<_StreamTestTab> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
     _streamClient?.disconnect();
     _controller?.dispose();
@@ -263,13 +314,16 @@ class _StreamTestTabState extends State<_StreamTestTab> {
 
   @override
   Widget build(BuildContext context) {
-    if (_controller == null || !_controller!.value.isInitialized) {
+    if (!_backgroundStreaming && (_controller == null || !_controller!.value.isInitialized)) {
       return const Center(child: CircularProgressIndicator());
     }
     return Stack(
       alignment: Alignment.bottomCenter,
       children: [
-        SizedBox.expand(child: CameraPreview(_controller!)),
+        if (_controller != null && _controller!.value.isInitialized)
+          SizedBox.expand(child: CameraPreview(_controller!))
+        else
+          Container(color: Colors.black),
         Positioned(
           top: 0,
           left: 0,
@@ -285,6 +339,15 @@ class _StreamTestTabState extends State<_StreamTestTab> {
             ),
           ),
         ),
+        Positioned(
+          right: 12,
+          bottom: 84,
+          child: ElevatedButton.icon(
+            onPressed: _backgroundStreaming ? _stopBackgroundStreaming : _startBackgroundStreaming,
+            icon: Icon(_backgroundStreaming ? Icons.stop_circle : Icons.play_circle_fill),
+            label: Text(_backgroundStreaming ? '백그라운드 중지' : '백그라운드 시작'),
+          ),
+        ),
         Container(
           padding: const EdgeInsets.all(16),
           color: Colors.black54,
@@ -294,6 +357,14 @@ class _StreamTestTabState extends State<_StreamTestTab> {
               Text('프레임: $_frameCount', style: const TextStyle(color: Colors.white)),
               const SizedBox(width: 16),
               Text(_lastResult ?? '-', style: const TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.bold)),
+              const SizedBox(width: 16),
+              Text(
+                _backgroundStreaming ? 'BG ON' : 'FG',
+                style: TextStyle(
+                  color: _backgroundStreaming ? Colors.orangeAccent : Colors.white70,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
             ],
           ),
         ),
