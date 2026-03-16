@@ -8,13 +8,13 @@ echo Face Recognition Backend - 설치 (Windows)
 echo ============================================================
 echo.
 
-set "PY=python"
+set "USE_PY_LAUNCHER=0"
 where py >nul 2>&1
 if not errorlevel 1 (
     py -3.12 -c "import sys" 2>nul
-    if not errorlevel 1 set "PY=py -3.12"
+    if not errorlevel 1 set "USE_PY_LAUNCHER=1"
 )
-if "%PY%"=="python" (
+if "%USE_PY_LAUNCHER%"=="0" (
     where python >nul 2>&1
     if errorlevel 1 (
         echo [오류] Python을 찾을 수 없습니다.
@@ -27,7 +27,11 @@ echo [1/2] 가상환경 생성: venv
 if exist "venv\Scripts\python.exe" (
     echo   venv 가 이미 있습니다. 건너뜁니다.
 ) else (
-    "%PY%" -m venv venv
+    if "%USE_PY_LAUNCHER%"=="1" (
+        py -3.12 -m venv venv
+    ) else (
+        python -m venv venv
+    )
     if errorlevel 1 (
         echo 가상환경 생성 실패. Python 3.10~3.12 인지 확인하세요.
         exit /b 1
