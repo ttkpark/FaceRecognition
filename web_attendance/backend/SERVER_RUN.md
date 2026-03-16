@@ -81,3 +81,40 @@ PC IP 확인 (PowerShell): `Get-NetIPAddress -AddressFamily IPv4 | Where-Object 
 ---
 
 **포트 8000**으로 쓰려면 `run.bat 8000` 또는 `./run.sh 8000` 으로 실행하면 됩니다.
+
+---
+
+## 문제 해결: greenlet DLL 오류 (Windows)
+
+서버 시작 시 아래처럼 나오면:
+
+```text
+ValueError: the greenlet library is required to use this function.
+DLL load failed while importing _greenlet: 지정된 모듈을 찾을 수 없습니다.
+```
+
+**1) Visual C++ 재배포 패키지 설치**
+
+- [Microsoft Visual C++ 재배포 패키지](https://learn.microsoft.com/ko-kr/cpp/windows/latest-supported-vc-redist) 에서 **x64** 용 최신 버전 설치 후 재부팅/터미널 다시 연 뒤 서버 재실행.
+
+**2) greenlet만 다시 설치**
+
+가상환경 활성화 후:
+
+```bat
+pip install --force-reinstall --no-cache-dir "greenlet>=3.0.0,<4.0.0"
+```
+
+**3) 그래도 안 되면: Microsoft Store Python 대신 python.org Python 사용**
+
+- Microsoft Store로 설치한 Python에서는 위 오류가 자주 납니다.
+- [python.org 다운로드](https://www.python.org/downloads/) 에서 Windows용 설치 프로그램으로 **Python 3.12** 설치 (설치 시 "Add Python to PATH" 체크).
+- 기존 `venv` 삭제 후 다시 설정:
+
+```bat
+cd web_attendance\backend
+rmdir /s /q venv
+setup.bat
+```
+
+이후 `run.bat` 또는 `python -m uvicorn main:app --host 0.0.0.0 --port 8001` 로 실행해 보세요.

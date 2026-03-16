@@ -38,13 +38,16 @@ if exist "venv\Scripts\python.exe" (
     )
 )
 
-echo [2/2] 패키지 설치: pip install -r requirements.txt
+echo [2/3] 패키지 설치: pip install -r requirements.txt
 call venv\Scripts\activate.bat
 pip install -r requirements.txt
 if errorlevel 1 (
     echo 패키지 설치 실패.
     exit /b 1
 )
+
+echo [3/3] greenlet 확인 (Windows DB 연동용)
+pip install --upgrade "greenlet>=3.0.0,<4.0.0" >nul 2>&1
 
 echo.
 echo 설치 완료. 서버 실행: run.bat [포트]
