@@ -1,5 +1,5 @@
 # Face Recognition Attendance - Backend (Windows)
-# Python 3.10 ~ 3.12 권장 (3.13은 TensorFlow 미지원)
+# Python 3.10 to 3.12 recommended (3.13+ TensorFlow not supported)
 fastapi>=0.115.0
 uvicorn[standard]>=0.32.0
 python-multipart>=0.0.17
